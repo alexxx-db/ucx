@@ -913,7 +913,7 @@ class GroupManager(CrawlerBase[MigratedGroup]):
 
 
 class AccountGroupLookup:
-    _PAGE_SIZE = 10000
+    PAGE_SIZE = 10000
 
     def __init__(self, ws: WorkspaceClient):
         self._ws = ws
@@ -970,7 +970,7 @@ class AccountGroupLookup:
         # Paginate through the undocumented workspace-level account SCIM endpoint,
         # mirroring the pagination logic in the SDK's AccountGroupsAPI.list().
         seen: set[str] = set()
-        query: dict[str, str | int] = {"attributes": scim_attributes, "startIndex": 1, "count": self._PAGE_SIZE}
+        query: dict[str, str | int] = {"attributes": scim_attributes, "startIndex": 1, "count": self.PAGE_SIZE}
         while True:
             raw = self._ws.api_client.do("GET", "/api/2.0/account/scim/v2/Groups", query=query)
             resources = raw.get("Resources", [])  # type: ignore[union-attr]
