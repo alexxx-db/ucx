@@ -568,6 +568,38 @@ def test_reflect_account_should_not_fail_if_group_not_in_the_account_anymore():
     )
 
 
+def test_list_account_groups_paginates_and_deduplicates():
+    backend = MockBackend(rows={"SELECT": [("1", "de", "de", "test-group-de", "", "", "", "")]})
+    wsclient = create_autospec(WorkspaceClient)
+
+    page1 = [
+        Group(id="1", display_name="alpha").as_dict(),
+        Group(id="2", display_name="beta").as_dict(),
+    ]
+    page2 = [
+        Group(id="2", display_name="beta").as_dict(),
+        Group(id="3", display_name="gamma").as_dict(),
+        Group(id="4", display_name="users").as_dict(),
+    ]
+
+    wsclient.api_client.do.side_effect = [
+        {"Resources": page1},
+        {"Resources": page2},
+        {"Resources": []},
+    ]
+
+    group1 = Group(id="1", display_name="de", meta=ResourceMeta(resource_type="WorkspaceGroup"))
+    wsclient.groups.list.return_value = [group1]
+    wsclient.groups.get.return_value = group1
+
+    gm = GroupManager(backend, wsclient, inventory_database="inv")
+    gm._account_groups_lookup._PAGE_SIZE = 2
+    mapping = gm._account_groups_lookup.get_mapping()
+
+    assert list(mapping.keys()) == ["alpha", "beta", "gamma"]
+    assert wsclient.api_client.do.call_count == 3
+
+
 def test_delete_original_workspace_groups_should_delete_reflected_acc_groups_in_workspace(fake_sleep: Mock) -> None:
     account_id = "11"
     ws_id = "1"
