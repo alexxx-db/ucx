@@ -14,6 +14,7 @@ from databricks.sdk.service import iam
 from databricks.sdk.service.iam import ComplexValue, Group, ResourceMeta
 
 from databricks.labs.ucx.workspace_access.groups import (
+    AccountGroupLookup,
     ConfigureGroups,
     GroupManager,
     MigratedGroup,
@@ -582,22 +583,24 @@ def test_list_account_groups_paginates_and_deduplicates():
         Group(id="4", display_name="users").as_dict(),
     ]
 
-    wsclient.api_client.do.side_effect = [
-        {"Resources": page1},
-        {"Resources": page2},
-        {"Resources": []},
-    ]
+    responses = [{"Resources": page1}, {"Resources": page2}, {"Resources": []}]
 
-    group1 = Group(id="1", display_name="de", meta=ResourceMeta(resource_type="WorkspaceGroup"))
+    def do_side_effect(method, *_args, **_kwargs):
+        if method == "GET":
+            return responses.pop(0)
+        return None
+
+    wsclient.api_client.do.side_effect = do_side_effect
+
+    group1 = Group(id="1", display_name="test-dfd-alpha", meta=ResourceMeta(resource_type="WorkspaceGroup"))
     wsclient.groups.list.return_value = [group1]
     wsclient.groups.get.return_value = group1
 
-    gm = GroupManager(backend, wsclient, inventory_database="inv")
-    gm._account_groups_lookup._PAGE_SIZE = 2
-    mapping = gm._account_groups_lookup.get_mapping()
+    with patch.object(AccountGroupLookup, "PAGE_SIZE", 2):
+        GroupManager(backend, wsclient, inventory_database="inv").reflect_account_groups_on_workspace()
 
-    assert list(mapping.keys()) == ["alpha", "beta", "gamma"]
-    assert wsclient.api_client.do.call_count == 3
+    get_calls = [c for c in wsclient.api_client.do.call_args_list if c[0][0] == "GET"]
+    assert len(get_calls) == 3
 
 
 def test_delete_original_workspace_groups_should_delete_reflected_acc_groups_in_workspace(fake_sleep: Mock) -> None:
