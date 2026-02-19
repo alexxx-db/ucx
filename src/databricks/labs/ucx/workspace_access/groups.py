@@ -964,13 +964,28 @@ class AccountGroupLookup:
         # TODO: we should avoid using this method, as it's not documented
         # get account-level groups even if they're not (yet) assigned to a workspace
         logger.info(f"Listing account groups with {scim_attributes}...")
-        account_groups = []
-        raw = self._ws.api_client.do("GET", "/api/2.0/account/scim/v2/Groups", query={"attributes": scim_attributes})
-        for resource in raw.get("Resources", []):  # type: ignore[union-attr]
-            group = iam.Group.from_dict(resource)
-            if group.display_name in SYSTEM_GROUPS:
-                continue
-            account_groups.append(group)
+        account_groups: list[iam.Group] = []
+        # Paginate through the undocumented workspace-level account SCIM endpoint,
+        # mirroring the pagination logic in the SDK's AccountGroupsAPI.list().
+        seen: set[str] = set()
+        query: dict[str, str | int] = {"attributes": scim_attributes, "startIndex": 1, "count": 10000}
+        while True:
+            raw = self._ws.api_client.do("GET", "/api/2.0/account/scim/v2/Groups", query=query)
+            resources = raw.get("Resources", [])  # type: ignore[union-attr]
+            if not resources:
+                break
+            for resource in resources:
+                group = iam.Group.from_dict(resource)
+                if group.id and group.id in seen:
+                    continue
+                if group.id:
+                    seen.add(group.id)
+                if group.display_name in SYSTEM_GROUPS:
+                    continue
+                account_groups.append(group)
+            if len(resources) < int(query["count"]):
+                break
+            query["startIndex"] = int(query["startIndex"]) + len(resources)
         logger.info(f"Found {len(account_groups)} account groups")
         sorted_groups: list[iam.Group] = sorted(
             account_groups, key=lambda _: _.display_name if _.display_name else ""
